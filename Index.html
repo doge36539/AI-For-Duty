@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Voxel Shipment MW3</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: #0f0;
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; } /* Horiz */
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; } /* Vert */
+        
+        #ui {
+            position: absolute; bottom: 20px; left: 20px; color: #0f0; font-size: 24px; font-weight: bold;
+            text-shadow: 2px 2px 0 #000; pointer-events: none;
+        }
+        #instructions {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; text-align: center; font-size: 20px; background: rgba(0,0,0,0.5); padding: 20px;
+            cursor: pointer; border: 2px solid #0f0;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="crosshair"></div>
+    <div id="ui">
+        <div>HEALTH: 100</div>
+        <div>AMMO: 30/90</div>
+    </div>
+    <div id="instructions">
+        <h1>VOXEL SHIPMENT</h1>
+        <p>CLICK TO PLAY</p>
+        <p>WASD to Move | SPACE to Jump | CLICK to Shoot</p>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
