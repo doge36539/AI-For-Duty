@@ -11,18 +11,19 @@ const gameState = {
 
 // --- CONFIGURATION ---
 const BLOCK_SIZE = 5; 
-const PLAYER_HEIGHT = 10; // Eye level
-const MOVEMENT_SPEED = 60.0;
-const MAP_SIZE = 20; // 20x20 blocks
+const PLAYER_HEIGHT = 9; // Eye level
+const MOVEMENT_SPEED = 50.0; // Slightly slower for more control
+const JUMP_FORCE = 35.0;
 
 // --- SCENE SETUP ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.Fog(0x87CEEB, 10, 150); // Hides the "void" edge
+scene.background = new THREE.Color(0x87CEEB); // Sky Blue
+scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Fog to hide the world edge
 
- camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true; // Turn on shadows
 document.body.appendChild(renderer.domElement);
 
 // --- UI ELEMENTS ---
@@ -35,14 +36,19 @@ function updateUI() {
 }
 
 // --- LIGHTING ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambientLight);
+
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
 dirLight.position.set(50, 100, 50);
+dirLight.castShadow = true;
+dirLight.shadow.camera.near = 0.1;
+dirLight.shadow.camera.far = 200;
+dirLight.shadow.mapSize.width = 2048; // High res shadows
+dirLight.shadow.mapSize.height = 2048;
 scene.add(dirLight);
 
 // --- COLLISION WORLD DATA ---
-// We store every solid block in this Set to check against later
 const solidBlocks = new Set(); 
 
 function registerBlock(x, z) {
@@ -52,96 +58,94 @@ function registerBlock(x, z) {
 }
 
 function checkCollision(x, z) {
-    // Check if the coordinate we are trying to walk into is inside the Set
-    const key = `${Math.round(x / BLOCK_SIZE)},${Math.round(z / BLOCK_SIZE)}`;
+    // Convert world position back to grid coordinates
+    const gridX = Math.round(x / BLOCK_SIZE);
+    const gridZ = Math.round(z / BLOCK_SIZE);
+    const key = `${gridX},${gridZ}`;
     return solidBlocks.has(key);
 }
 
-// --- MAP GENERATION (SHIPMENT) ---
+// --- MATERIALS ---
 const textureLoader = new THREE.TextureLoader();
-// Using colors instead of textures for performance on Chromebook
-const matFloor = new THREE.MeshStandardMaterial({ color: 0x555555 });
-const matCrate = new THREE.MeshStandardMaterial({ color: 0x2E8B57 }); // Green
-const matCrateRed = new THREE.MeshStandardMaterial({ color: 0x8B0000 }); // Red
+const matFloor = new THREE.MeshStandardMaterial({ color: 0x555555 }); // Grey Floor
+const matWall = new THREE.MeshStandardMaterial({ color: 0x2F4F4F });  // Dark Metal Outer Wall
+const matCrateGreen = new THREE.MeshStandardMaterial({ color: 0x3e4a2e }); // Green Crate
+const matCrateRed = new THREE.MeshStandardMaterial({ color: 0x8b3a3a });   // Red Crate
+
 const geometryBlock = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 const geometryFloor = new THREE.BoxGeometry(BLOCK_SIZE, 1, BLOCK_SIZE);
 
-function createVoxel(x, y, z, type) {
-    let mesh;
-    
-    if (type === 'floor') {
-        mesh = new THREE.Mesh(geometryFloor, matFloor);
-        mesh.position.set(x * BLOCK_SIZE, -0.5, z * BLOCK_SIZE); // Lower floor slightly
-    } else {
-        const mat = (type === 'red') ? matCrateRed : matCrate;
-        mesh = new THREE.Mesh(geometryBlock, mat);
-        mesh.position.set(x * BLOCK_SIZE, (BLOCK_SIZE/2), z * BLOCK_SIZE);
-        
-        // Register this block as SOLID so we can't walk through it
-        registerBlock(x, z);
-    }
+// --- MAP GENERATION (MANUAL LAYOUT) ---
+// 0 = Walkable Floor
+// 1 = Green Container (1 high)
+// 2 = Red Container (Stacked - 2 high)
+// 3 = Outer Wall (3 high - Unclimbable)
+// 9 = Empty/Void
 
-    scene.add(mesh);
-    return mesh;
-}
-
-// --- SHIPMENT LEVEL LAYOUT ---
-// 0 = Void/Edge, 1 = Walkable Floor, 2 = Single Crate, 3 = Double Stack, 4 = Red Container
 const levelLayout = [
-    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], // Row 1 (Wall)
-    [3, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 3], // Row 2
-    [3, 1, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 3], // Row 3 (Containers)
-    [3, 1, 4, 4, 1, 2, 1, 1, 1, 2, 1, 4, 4, 1, 3], 
-    [3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3],
-    [3, 2, 1, 1, 1, 3, 3, 1, 3, 3, 1, 1, 1, 2, 3], // Middle clusters
-    [3, 1, 1, 1, 1, 3, 0, 0, 0, 3, 1, 1, 1, 1, 3], // Center (0 = open cross)
-    [3, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 3], 
-    [3, 1, 1, 1, 1, 3, 0, 0, 0, 3, 1, 1, 1, 1, 3], 
-    [3, 2, 1, 1, 1, 3, 3, 1, 3, 3, 1, 1, 1, 2, 3], 
-    [3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3], 
-    [3, 1, 4, 4, 1, 2, 1, 1, 1, 2, 1, 4, 4, 1, 3], 
-    [3, 1, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 3],
-    [3, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 3],
-    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]  // Last Wall
+    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], // Outer Wall
+    [3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3], 
+    [3, 0, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 3], // Corner stacks
+    [3, 0, 2, 2, 0, 1, 0, 1, 0, 2, 2, 0, 3], 
+    [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], // Walking path
+    [3, 1, 0, 1, 0, 2, 0, 2, 0, 1, 0, 1, 3], // Middle Mix
+    [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], // Center Cross (Walking path)
+    [3, 1, 0, 1, 0, 2, 0, 2, 0, 1, 0, 1, 3], 
+    [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 
+    [3, 0, 2, 2, 0, 1, 0, 1, 0, 2, 2, 0, 3], 
+    [3, 0, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 3], 
+    [3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3], 
+    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]  // Outer Wall
 ];
 
-// --- MAP BUILDER ---
-const BLOCK_SIZE = 5; 
+function createVoxel(x, y, z, mat) {
+    const mesh = new THREE.Mesh(geometryBlock, mat);
+    mesh.position.set(x * BLOCK_SIZE, (y * BLOCK_SIZE) + (BLOCK_SIZE/2), z * BLOCK_SIZE);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    
+    // Add to collision registry
+    registerBlock(x, z);
+}
 
 function buildMap() {
-    // Center the map so (0,0) is in the middle of the game
-    const offset = (levelLayout.length * BLOCK_SIZE) / 2;
+    // Calculate offset to center the map at (0,0)
+    const offsetZ = Math.floor(levelLayout.length / 2);
+    const offsetX = Math.floor(levelLayout[0].length / 2);
 
     for (let row = 0; row < levelLayout.length; row++) {
         for (let col = 0; col < levelLayout[row].length; col++) {
             const type = levelLayout[row][col];
-            const x = (col * BLOCK_SIZE) - offset;
-            const z = (row * BLOCK_SIZE) - offset;
+            
+            // Adjust coordinates so (0,0) is center of map
+            const x = col - offsetX;
+            const z = row - offsetZ;
 
-            // ALWAYS build a floor under everything so you don't fall
-            if (type !== 0) createVoxel(x/BLOCK_SIZE, 0, z/BLOCK_SIZE, 'floor');
+            // 1. ALWAYS build floor first
+            const floor = new THREE.Mesh(geometryFloor, matFloor);
+            floor.position.set(x * BLOCK_SIZE, 0, z * BLOCK_SIZE);
+            floor.receiveShadow = true;
+            scene.add(floor);
 
-            // Build stacks based on the number in the grid
-            if (type === 2) {
-                // Single Crate
-                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'crate');
-            } 
-            else if (type === 3) {
-                // Double Stack (Wall)
-                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'crate');
-                createVoxel(x/BLOCK_SIZE, 2, z/BLOCK_SIZE, 'crate');
-                createVoxel(x/BLOCK_SIZE, 3, z/BLOCK_SIZE, 'crate'); // Make it 3 high so you can't jump over
-            }
-            else if (type === 4) {
-                // Red Container
-                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'red');
-                createVoxel(x/BLOCK_SIZE, 2, z/BLOCK_SIZE, 'red');
+            // 2. Build Objects on top
+            if (type === 1) {
+                // Green Crate (1 High)
+                createVoxel(x, 1, z, matCrateGreen);
+            } else if (type === 2) {
+                // Red Stack (2 High)
+                createVoxel(x, 1, z, matCrateRed);
+                createVoxel(x, 2, z, matCrateRed);
+            } else if (type === 3) {
+                // Outer Wall (3 High - Impassable)
+                createVoxel(x, 1, z, matWall);
+                createVoxel(x, 2, z, matWall);
+                createVoxel(x, 3, z, matWall);
             }
         }
     }
 }
 
-// Run the builder
 buildMap();
 
 // --- PLAYER ---
@@ -153,14 +157,14 @@ controls.addEventListener('lock', () => instructions.style.display = 'none');
 controls.addEventListener('unlock', () => instructions.style.display = 'block');
 
 scene.add(controls.getObject());
-// **Fix Spawn:** Start higher up so we don't clip, and in the center (0,0)
+// Spawn in center (safe zone)
 controls.getObject().position.set(0, PLAYER_HEIGHT, 0); 
 
 // --- WEAPON ---
-const gunGeo = new THREE.BoxGeometry(0.5, 0.5, 3);
-const gunMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+const gunGeo = new THREE.BoxGeometry(0.5, 0.5, 2.5);
+const gunMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 const gun = new THREE.Mesh(gunGeo, gunMat);
-gun.position.set(2, -1.5, -3); // Lower right of screen
+gun.position.set(2, -1.5, -2.5); // Gun position relative to camera
 camera.add(gun);
 
 // --- INPUTS ---
@@ -187,16 +191,18 @@ document.addEventListener('keyup', (e) => {
 
 function reload() {
     if (gameState.totalAmmo > 0) {
-        gameState.ammo = 30;
-        gameState.totalAmmo -= 30;
-        updateUI();
-        // Simple reload animation (dip gun)
-        gun.rotation.x = -0.5;
-        setTimeout(() => gun.rotation.x = 0, 500);
+        // Animation
+        gun.rotation.x = -1;
+        setTimeout(() => {
+            gameState.ammo = 30;
+            gameState.totalAmmo -= 30;
+            updateUI();
+            gun.rotation.x = 0;
+        }, 1000);
     }
 }
 
-// --- SHOOTING LOGIC ---
+// --- SHOOTING ---
 const raycaster = new THREE.Raycaster();
 document.addEventListener('mousedown', () => {
     if (!controls.isLocked || gameState.ammo <= 0) return;
@@ -204,25 +210,26 @@ document.addEventListener('mousedown', () => {
     gameState.ammo--;
     updateUI();
 
-    // Recoil
-    gun.position.z += 0.5; 
-    setTimeout(() => gun.position.z -= 0.5, 50);
+    // Visual Recoil
+    gun.position.z += 0.3; 
+    setTimeout(() => gun.position.z -= 0.3, 50);
 
-    // Raycast center screen
+    // Raycast
     raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
     const intersects = raycaster.intersectObjects(scene.children);
 
     if (intersects.length > 0) {
         const hit = intersects[0];
-        // Create a Spark (Hit Marker) instead of changing color
+        
+        // Spawn Spark at hit point
         const sparkGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-        const sparkMat = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
+        const sparkMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); // Gold spark
         const spark = new THREE.Mesh(sparkGeo, sparkMat);
         spark.position.copy(hit.point);
         scene.add(spark);
         
-        // Remove spark after 0.2 seconds
-        setTimeout(() => scene.remove(spark), 200);
+        // Remove spark
+        setTimeout(() => scene.remove(spark), 150);
     }
 });
 
@@ -239,37 +246,34 @@ function animate() {
     prevTime = time;
 
     if (controls.isLocked) {
-        // 1. Gravity
-        velocity.y -= 100.0 * delta; // Strong gravity
+        // Gravity
+        velocity.y -= 100.0 * delta; 
 
-        // 2. Input Direction
+        // Input
         direction.z = Number(keys.w) - Number(keys.s);
         direction.x = Number(keys.d) - Number(keys.a);
         direction.normalize();
 
-        // 3. Calculate "Desired" Move
-        const speed = MOVEMENT_SPEED * delta;
-        const moveX = direction.x * speed;
-        const moveZ = direction.z * speed;
+        const moveX = direction.x * MOVEMENT_SPEED * delta;
+        const moveZ = direction.z * MOVEMENT_SPEED * delta;
 
-        // 4. COLLISION DETECTION (The Fix)
-        // We predict where the player wants to go. If it's a wall, we allow 0 movement.
-        const currentPos = controls.getObject().position;
-        
-        // Check X axis movement
+        // --- X AXIS COLLISION ---
         controls.moveRight(moveX);
-        if (checkCollision(controls.getObject().position.x, currentPos.z)) {
-            controls.moveRight(-moveX); // Undo move if hit wall
+        const posX = controls.getObject().position.x;
+        const posZ = controls.getObject().position.z;
+
+        if (checkCollision(posX, posZ)) {
+            controls.moveRight(-moveX); // Undo X move
         }
 
-        // Check Z axis movement
-        controls.moveForward(moveZ); 
-        // Note: moveForward uses local Z, so we need to check world position after the move
-        if (checkCollision(currentPos.x, controls.getObject().position.z)) {
-            controls.moveForward(-moveZ); // Undo move if hit wall
+        // --- Z AXIS COLLISION ---
+        controls.moveForward(moveZ);
+        // Check new position after Z move
+        if (checkCollision(controls.getObject().position.x, controls.getObject().position.z)) {
+            controls.moveForward(-moveZ); // Undo Z move
         }
 
-        // 5. Floor Collision
+        // --- Y AXIS (Floor) ---
         controls.getObject().position.y += (velocity.y * delta);
 
         if (controls.getObject().position.y < PLAYER_HEIGHT) {
@@ -277,7 +281,7 @@ function animate() {
             controls.getObject().position.y = PLAYER_HEIGHT;
             
             if (keys.space) {
-                velocity.y = 40; // Jump
+                velocity.y = JUMP_FORCE;
             }
         }
     }
@@ -289,7 +293,7 @@ function animate() {
 updateUI();
 animate();
 
-// Resize
+// Resize Handler
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
