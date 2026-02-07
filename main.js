@@ -20,7 +20,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
 scene.fog = new THREE.Fog(0x87CEEB, 10, 150); // Hides the "void" edge
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+ camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -85,29 +85,64 @@ function createVoxel(x, y, z, type) {
     return mesh;
 }
 
-// Build the Grid
-for (let x = -MAP_SIZE; x <= MAP_SIZE; x++) {
-    for (let z = -MAP_SIZE; z <= MAP_SIZE; z++) {
-        // 1. Create Floor everywhere
-        createVoxel(x, 0, z, 'floor');
+// --- SHIPMENT LEVEL LAYOUT ---
+// 0 = Void/Edge, 1 = Walkable Floor, 2 = Single Crate, 3 = Double Stack, 4 = Red Container
+const levelLayout = [
+    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], // Row 1 (Wall)
+    [3, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 3], // Row 2
+    [3, 1, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 3], // Row 3 (Containers)
+    [3, 1, 4, 4, 1, 2, 1, 1, 1, 2, 1, 4, 4, 1, 3], 
+    [3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3],
+    [3, 2, 1, 1, 1, 3, 3, 1, 3, 3, 1, 1, 1, 2, 3], // Middle clusters
+    [3, 1, 1, 1, 1, 3, 0, 0, 0, 3, 1, 1, 1, 1, 3], // Center (0 = open cross)
+    [3, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 3], 
+    [3, 1, 1, 1, 1, 3, 0, 0, 0, 3, 1, 1, 1, 1, 3], 
+    [3, 2, 1, 1, 1, 3, 3, 1, 3, 3, 1, 1, 1, 2, 3], 
+    [3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3], 
+    [3, 1, 4, 4, 1, 2, 1, 1, 1, 2, 1, 4, 4, 1, 3], 
+    [3, 1, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 3],
+    [3, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 3],
+    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]  // Last Wall
+];
 
-        // 2. Outer Walls (The "Cage")
-        if (Math.abs(x) === MAP_SIZE || Math.abs(z) === MAP_SIZE) {
-            createVoxel(x, 1, z, 'crate'); // Height 1
-            createVoxel(x, 2, z, 'crate'); // Height 2
-        }
+// --- MAP BUILDER ---
+const BLOCK_SIZE = 5; 
 
-        // 3. Shipment Layout (Simplified)
-        // Center area is open (safe zone)
-        if (Math.abs(x) < 3 && Math.abs(z) < 3) continue;
+function buildMap() {
+    // Center the map so (0,0) is in the middle of the game
+    const offset = (levelLayout.length * BLOCK_SIZE) / 2;
 
-        // Randomly place crates in the quadrants
-        if (Math.random() > 0.7 && Math.abs(x) < MAP_SIZE-1 && Math.abs(z) < MAP_SIZE-1) {
-             const type = Math.random() > 0.5 ? 'crate' : 'red';
-             createVoxel(x, 1, z, type);
+    for (let row = 0; row < levelLayout.length; row++) {
+        for (let col = 0; col < levelLayout[row].length; col++) {
+            const type = levelLayout[row][col];
+            const x = (col * BLOCK_SIZE) - offset;
+            const z = (row * BLOCK_SIZE) - offset;
+
+            // ALWAYS build a floor under everything so you don't fall
+            if (type !== 0) createVoxel(x/BLOCK_SIZE, 0, z/BLOCK_SIZE, 'floor');
+
+            // Build stacks based on the number in the grid
+            if (type === 2) {
+                // Single Crate
+                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'crate');
+            } 
+            else if (type === 3) {
+                // Double Stack (Wall)
+                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'crate');
+                createVoxel(x/BLOCK_SIZE, 2, z/BLOCK_SIZE, 'crate');
+                createVoxel(x/BLOCK_SIZE, 3, z/BLOCK_SIZE, 'crate'); // Make it 3 high so you can't jump over
+            }
+            else if (type === 4) {
+                // Red Container
+                createVoxel(x/BLOCK_SIZE, 1, z/BLOCK_SIZE, 'red');
+                createVoxel(x/BLOCK_SIZE, 2, z/BLOCK_SIZE, 'red');
+            }
         }
     }
 }
+
+// Run the builder
+buildMap();
 
 // --- PLAYER ---
 const controls = new PointerLockControls(camera, document.body);
